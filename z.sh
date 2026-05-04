@@ -88,22 +88,22 @@ _resolve_nanvix_path() {
 ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-    --with-nanvix=*)
-        _resolve_nanvix_path "${1#--with-nanvix=}"
-        shift
-        ;;
-    --with-nanvix)
-        if [[ $# -lt 2 ]]; then
-            echo "ERROR: --with-nanvix requires a path argument" >&2
-            exit 1
-        fi
-        _resolve_nanvix_path "$2"
-        shift 2
-        ;;
-    *)
-        ARGS+=("$1")
-        shift
-        ;;
+        --with-nanvix=*)
+            _resolve_nanvix_path "${1#--with-nanvix=}"
+            shift
+            ;;
+        --with-nanvix)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --with-nanvix requires a path argument" >&2
+                exit 1
+            fi
+            _resolve_nanvix_path "$2"
+            shift 2
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
     esac
 done
 
