@@ -20,6 +20,7 @@ IS_WINDOWS = sys.platform == "win32"
 
 _MAKE_VAR_CONFIG = "CONFIG_NANVIX"
 _MAKE_VAR_HOME = "NANVIX_HOME"
+_MAKE_VAR_BUILDROOT = "NANVIX_BUILDROOT"
 _MAKE_VAR_TOOLCHAIN = "NANVIX_TOOLCHAIN"
 _MAKE_VAR_PLATFORM = "PLATFORM"
 _MAKE_VAR_PROCESS_MODE = "PROCESS_MODE"
@@ -42,12 +43,18 @@ class LibxsltBuild(ZScript):
         sysroot_p = self.translate_path(Path(sysroot))
         toolchain_p = self.translate_path(Path(toolchain))
 
+        # Buildroot contains dependency libraries (libxml2, zlib).
+        buildroot_p = sysroot_p
+        if self.buildroot is not None:
+            buildroot_p = self.translate_path(self.buildroot.path)
+
         args = [
             "make",
             "-f",
             ".nanvix/Makefile.nanvix",
             f"{_MAKE_VAR_CONFIG}=y",
             f"{_MAKE_VAR_HOME}={sysroot_p}",
+            f"{_MAKE_VAR_BUILDROOT}={buildroot_p}",
             f"{_MAKE_VAR_TOOLCHAIN}={toolchain_p}",
         ]
 
