@@ -14,7 +14,14 @@ Usage:
 import sys
 from pathlib import Path
 
-from nanvix_zutil import CFG_SYSROOT, CFG_TOOLCHAIN, EXIT_MISSING_DEP, ZScript, log
+from nanvix_zutil import (
+    BUILDROOT_CONTAINER_PATH,
+    CFG_SYSROOT,
+    CFG_TOOLCHAIN,
+    EXIT_MISSING_DEP,
+    ZScript,
+    log,
+)
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -44,9 +51,13 @@ class LibxsltBuild(ZScript):
         toolchain_p = self.translate_path(Path(toolchain))
 
         # Buildroot contains dependency libraries (libxml2, zlib).
-        buildroot_p = sysroot_p
-        if self.buildroot is not None:
-            buildroot_p = self.translate_path(self.buildroot.path)
+        # During build(), self.buildroot may be None (only set during setup),
+        # so check if the directory exists on disk and translate accordingly.
+        buildroot_dir = self.nanvix_dir / "buildroot"
+        if buildroot_dir.is_dir():
+            buildroot_p = self.translate_path(buildroot_dir)
+        else:
+            buildroot_p = sysroot_p
 
         args = [
             "make",
