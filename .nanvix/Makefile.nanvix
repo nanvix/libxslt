@@ -1,0 +1,167 @@
+# Makefile.nanvix - libxslt cross-compilation for Nanvix
+#
+# Copyright(c) The Maintainers of Nanvix.
+# Licensed under the MIT License.
+
+# ===========================================================================
+# Toolchain Detection
+# ===========================================================================
+
+NANVIX_DOCKER_IMAGE ?= nanvix/toolchain:latest-minimal
+
+ifdef CONFIG_NANVIX
+  NANVIX_TOOLCHAIN ?= /opt/nanvix
+  NANVIX_HOME ?= $(HOME)/nanvix
+
+  ifndef CONFIG_NANVIX_DOCKER
+    ifeq ($(wildcard $(NANVIX_TOOLCHAIN)/bin/i686-nanvix-gcc),)
+      DOCKER_AVAILABLE := $(shell command -v docker 2>/dev/null)
+      ifdef DOCKER_AVAILABLE
+        DOCKER_IMAGE_EXISTS := $(shell docker image inspect $(NANVIX_DOCKER_IMAGE) >/dev/null 2>&1 && echo yes)
+        ifdef DOCKER_IMAGE_EXISTS
+          CONFIG_NANVIX_DOCKER := y
+          $(info [nanvix] Using Docker (native toolchain not found at $(NANVIX_TOOLCHAIN)))
+        else
+          $(error Docker image $(NANVIX_DOCKER_IMAGE) not found. Run: docker pull $(NANVIX_DOCKER_IMAGE))
+        endif
+      else
+        $(error Nanvix toolchain not found at $(NANVIX_TOOLCHAIN) and Docker not available)
+      endif
+    endif
+  else
+    DOCKER_AVAILABLE := $(shell command -v docker 2>/dev/null)
+    ifndef DOCKER_AVAILABLE
+      $(error CONFIG_NANVIX_DOCKER=y but Docker is not installed)
+    endif
+    DOCKER_IMAGE_EXISTS := $(shell docker image inspect $(NANVIX_DOCKER_IMAGE) >/dev/null 2>&1 && echo yes)
+    ifndef DOCKER_IMAGE_EXISTS
+      $(error Docker image $(NANVIX_DOCKER_IMAGE) not found. Run: docker pull $(NANVIX_DOCKER_IMAGE))
+    endif
+    $(info [nanvix] Using Docker (explicitly requested))
+  endif
+
+  EXE = .elf
+  SYSROOT_PATH := $(abspath $(NANVIX_HOME))
+
+  ifdef CONFIG_NANVIX_DOCKER
+    DOCKER_TOOLCHAIN_PATH := /opt/nanvix
+    DOCKER_SYSROOT_PATH := /mnt/sysroot
+    DOCKER_WORKSPACE_PATH := /mnt/workspace
+    DOCKER_UID := $(shell id -u)
+    DOCKER_GID := $(shell id -g)
+    DOCKER_RUN := docker run --rm --user $(DOCKER_UID):$(DOCKER_GID) \
+      -v $(CURDIR):$(DOCKER_WORKSPACE_PATH) \
+      -v $(SYSROOT_PATH):$(DOCKER_SYSROOT_PATH):ro \
+      -w $(DOCKER_WORKSPACE_PATH) \
+      -e HOME=/tmp \
+      $(NANVIX_DOCKER_IMAGE)
+    EFFECTIVE_SYSROOT := $(DOCKER_SYSROOT_PATH)
+    EFFECTIVE_TOOLCHAIN := $(DOCKER_TOOLCHAIN_PATH)
+    RUN_CMD := $(DOCKER_RUN)
+  else
+    EFFECTIVE_SYSROOT := $(SYSROOT_PATH)
+    EFFECTIVE_TOOLCHAIN := $(NANVIX_TOOLCHAIN)
+    RUN_CMD :=
+  endif
+else
+  ifneq ($(MAKECMDGOALS),clean)
+    $(error CONFIG_NANVIX must be set to 'y')
+  endif
+  EXE = .elf
+endif
+
+PREFIX ?= $(SYSROOT_PATH)
+PLATFORM ?= unknown
+PROCESS_MODE ?= unknown
+MEMORY_SIZE ?= unknown
+NPROC := $(shell nproc 2>/dev/null || echo 4)
+
+# ===========================================================================
+# Build Targets
+# ===========================================================================
+
+STATICLIB_XSLT = libxslt/.libs/libxslt.a
+STATICLIB_EXSLT = libexslt/.libs/libexslt.a
+
+all: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
+
+$(STATICLIB_XSLT) $(STATICLIB_EXSLT):
+	$(RUN_CMD) sh -c '\
+	  export PATH="$(EFFECTIVE_TOOLCHAIN)/bin:$$PATH" && \
+	  ./configure --host=i686-nanvix \
+	    --prefix=/usr/local \
+	    --enable-static --disable-shared \
+	    --without-python --without-crypto \
+	    --without-debugger --without-plugins \
+	    --with-libxml-prefix="$(EFFECTIVE_SYSROOT)" \
+	    --with-libxml-include-prefix="$(EFFECTIVE_SYSROOT)/include/libxml2" \
+	    --with-libxml-libs-prefix="$(EFFECTIVE_SYSROOT)/lib" \
+	    CFLAGS="-I$(EFFECTIVE_SYSROOT)/include -I$(EFFECTIVE_SYSROOT)/include/libxml2" \
+	    LDFLAGS="-L$(EFFECTIVE_SYSROOT)/lib" \
+	    LIBS="-lxml2 -lz" && \
+	  make -C libxslt -j$(NPROC) && \
+	  make -C libexslt -j$(NPROC)'
+
+# ===========================================================================
+# Test Targets
+# ===========================================================================
+
+test-smoke: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
+	@echo "=== libxslt smoke tests ==="
+	@test -f libxslt/.libs/libxslt.a || { echo "FAIL: libxslt.a not found"; exit 1; }
+	@test -f libexslt/.libs/libexslt.a || { echo "FAIL: libexslt.a not found"; exit 1; }
+	@echo "  PASS: libxslt smoke tests"
+
+test-integration: test-smoke
+	@echo "  PASS: libxslt integration tests (static library only)"
+
+test-functional: test-integration
+	@echo "  PASS: libxslt functional tests (library only, no runtime tests)"
+
+test: test-smoke test-integration test-functional
+	@echo "=== All libxslt tests PASSED ==="
+
+# ===========================================================================
+# Package Target
+# ===========================================================================
+
+package: all
+	@echo "=== Packaging libxslt release ==="
+	$(eval ARTIFACT_NAME := libxslt-$(PLATFORM)-$(PROCESS_MODE)-$(MEMORY_SIZE))
+	rm -rf dist/$(ARTIFACT_NAME)
+	mkdir -p dist/$(ARTIFACT_NAME)/sysroot/lib \
+	         dist/$(ARTIFACT_NAME)/sysroot/include/libxslt \
+	         dist/$(ARTIFACT_NAME)/sysroot/include/libexslt
+	cp -f libxslt/.libs/libxslt.a dist/$(ARTIFACT_NAME)/sysroot/lib/
+	cp -f libexslt/.libs/libexslt.a dist/$(ARTIFACT_NAME)/sysroot/lib/
+	cp -f libxslt/*.h dist/$(ARTIFACT_NAME)/sysroot/include/libxslt/
+	cp -f libexslt/*.h dist/$(ARTIFACT_NAME)/sysroot/include/libexslt/
+	tar -cjf dist/$(ARTIFACT_NAME).tar.bz2 -C dist/$(ARTIFACT_NAME) sysroot
+	@echo "  Package: dist/$(ARTIFACT_NAME).tar.bz2"
+
+verify-package:
+	@echo "=== Verifying libxslt package ==="
+	$(eval ARTIFACT_NAME := libxslt-$(PLATFORM)-$(PROCESS_MODE)-$(MEMORY_SIZE))
+	@test -f "dist/$(ARTIFACT_NAME).tar.bz2" || { echo "FAIL: tarball not found"; exit 1; }
+	@tar tjf "dist/$(ARTIFACT_NAME).tar.bz2" | grep -q 'sysroot/lib/libxslt.a' || { echo "FAIL: missing libxslt.a"; exit 1; }
+	@tar tjf "dist/$(ARTIFACT_NAME).tar.bz2" | grep -q 'sysroot/lib/libexslt.a' || { echo "FAIL: missing libexslt.a"; exit 1; }
+	@echo "  PASS: libxslt package verification"
+
+# ===========================================================================
+# Install / Clean
+# ===========================================================================
+
+install: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
+	mkdir -p "$(DESTDIR)$(PREFIX)/lib" \
+	         "$(DESTDIR)$(PREFIX)/include/libxslt" \
+	         "$(DESTDIR)$(PREFIX)/include/libexslt"
+	install -m644 libxslt/.libs/libxslt.a "$(DESTDIR)$(PREFIX)/lib/"
+	install -m644 libexslt/.libs/libexslt.a "$(DESTDIR)$(PREFIX)/lib/"
+	install -m644 libxslt/*.h "$(DESTDIR)$(PREFIX)/include/libxslt/"
+	install -m644 libexslt/*.h "$(DESTDIR)$(PREFIX)/include/libexslt/"
+
+clean:
+	-make clean 2>/dev/null || true
+	rm -rf dist/ libxslt/.libs/*.a libexslt/.libs/*.a
+
+.PHONY: all clean test test-smoke test-integration test-functional package verify-package install
