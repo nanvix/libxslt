@@ -88,6 +88,7 @@ all: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
 $(STATICLIB_XSLT) $(STATICLIB_EXSLT):
 	$(RUN_CMD) sh -c '\
 	  export PATH="$(EFFECTIVE_TOOLCHAIN)/bin:$$PATH" && \
+	  touch aclocal.m4 configure config.h.in Makefile.in libxslt/Makefile.in libexslt/Makefile.in && \
 	  ./configure --host=i686-nanvix \
 	    --prefix=/usr/local \
 	    --enable-static --disable-shared \

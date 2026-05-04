@@ -19,11 +19,17 @@ else {
 }
 $zutilVersion = $zutilVersion -replace "^v", ""
 
+# z.ps1 lives at the repository root, so use its directory directly
+# instead of relying on git to discover the top-level checkout directory.
 $repoRoot = $PSScriptRoot
 $venvDir = Join-Path $repoRoot ".nanvix\venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $venvZutil = Join-Path $venvDir "Scripts\nanvix-zutil.exe"
 
+# Windows compatibility shim: nanvix-zutil references os.getuid/os.getgid
+# which are unavailable on Windows.  Stub them before importing the package.
+# NOTE: Use single quotes inside the Python code so that PowerShell does not
+# strip the quotes when passing the string to python.exe -c.
 $ShimCode = @'
 import os,sys;os.getuid=getattr(os,'getuid',lambda:0);os.getgid=getattr(os,'getgid',lambda:0);from nanvix_zutil.__main__ import main;sys.exit(main())
 '@
@@ -36,10 +42,13 @@ catch {
 }
 
 function Bootstrap {
+    # Pin nanvix-zutil version for reproducible bootstrapping.
+    # Override with NANVIX_ZUTIL_VERSION env var if needed.
     Write-Information "nanvix-zutil not found -- bootstrapping nanvix-zutil==${zutilVersion}..." -InformationAction Continue
 
     $wheelUrl = "https://github.com/nanvix/zutils/releases/download/v${zutilVersion}/nanvix_zutil-${zutilVersion}-py3-none-any.whl"
 
+    # Discover a Python 3 interpreter.
     $venvArgs = @("-m", "venv")
     if (Test-Path $venvDir) {
         $venvArgs += "--clear"
@@ -67,6 +76,7 @@ function Bootstrap {
     }
 }
 
+# Prefer the venv copy if it exists; otherwise use the global install.
 $bin = $null
 if ((-not (Test-Path $venvDir)) -and (-not $zutilGlobalVersion)) {
     Bootstrap
@@ -76,6 +86,8 @@ if ((-not (Test-Path $venvDir)) -and (-not $zutilGlobalVersion)) {
     $bin = $venvZutil
 }
 elseif (Test-Path $venvZutil) {
+    # Use the shim to check version -- running the exe directly fails on
+    # Windows because os.getuid/os.getgid are unavailable (see FIXME above).
     $venvVersion = try {
         & $venvPython -c $ShimCode --version 2>$null
     }

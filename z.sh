@@ -14,6 +14,8 @@ REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P
 VENV="$REPO_ROOT/.nanvix/venv"
 
 # Resolve venv layout (bin/ vs Scripts/) based on what exists on disk.
+# Can be called before venv creation to initialize default paths; call it
+# again after venv creation to pick up the actual layout.
 function _resolve_venv_paths() {
     if [ -d "$VENV/Scripts" ]; then
         VENV_BIN="$VENV/Scripts/nanvix-zutil.exe"
@@ -27,6 +29,8 @@ _resolve_venv_paths
 ZUTIL_GLOBAL_VERSION="$(nanvix-zutil --version 2>/dev/null || true)"
 
 function bootstrap() {
+    # Pin nanvix-zutil version for reproducible bootstrapping.
+    # Override with NANVIX_ZUTIL_VERSION env var if needed.
     echo "nanvix-zutil not found -- bootstrapping nanvix-zutil==${ZUTIL_VERSION}..." >&2
 
     if ! command -v python3 &>/dev/null; then
@@ -40,6 +44,7 @@ function bootstrap() {
     else
         python3 -m venv "$VENV"
     fi
+    # Re-resolve paths now that the venv exists (Scripts/ vs bin/).
     _resolve_venv_paths
     "$VENV_PYTHON" -m pip install --quiet "nanvix-zutil[lint] @ ${WHEEL_URL}"
 }
@@ -68,6 +73,9 @@ else
 fi
 
 # Extract --with-nanvix PATH before forwarding to nanvix-zutil.
+# The nanvix-zutil CLI inspects positional args to find the subcommand;
+# --with-nanvix's PATH argument would be mistaken for a subcommand.
+# Pass the value via env var so z.py can pick it up.
 _resolve_nanvix_path() {
     local raw="$1"
     if ! WITH_NANVIX="$(cd -- "$raw" 2>/dev/null && pwd -P)"; then
@@ -80,22 +88,22 @@ _resolve_nanvix_path() {
 ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --with-nanvix=*)
-            _resolve_nanvix_path "${1#--with-nanvix=}"
-            shift
-            ;;
-        --with-nanvix)
-            if [[ $# -lt 2 ]]; then
-                echo "ERROR: --with-nanvix requires a path argument" >&2
-                exit 1
-            fi
-            _resolve_nanvix_path "$2"
-            shift 2
-            ;;
-        *)
-            ARGS+=("$1")
-            shift
-            ;;
+    --with-nanvix=*)
+        _resolve_nanvix_path "${1#--with-nanvix=}"
+        shift
+        ;;
+    --with-nanvix)
+        if [[ $# -lt 2 ]]; then
+            echo "ERROR: --with-nanvix requires a path argument" >&2
+            exit 1
+        fi
+        _resolve_nanvix_path "$2"
+        shift 2
+        ;;
+    *)
+        ARGS+=("$1")
+        shift
+        ;;
     esac
 done
 
