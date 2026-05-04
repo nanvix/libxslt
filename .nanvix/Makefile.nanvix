@@ -119,8 +119,29 @@ test-smoke: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
 	@test -f libexslt/.libs/libexslt.a || { echo "FAIL: libexslt.a not found"; exit 1; }
 	@echo "  PASS: libxslt smoke tests"
 
-test-integration: test-smoke
-	@echo "  PASS: libxslt integration tests (static library only)"
+TEST_PROG = test_libxslt.elf
+
+test-integration: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
+	@echo "=== libxslt integration tests ==="
+	$(RUN_CMD) sh -c '\
+	  export PATH="$(EFFECTIVE_TOOLCHAIN)/bin:$$PATH" && \
+	  i686-nanvix-gcc \
+	    -I. -Ilibxslt -Ilibexslt \
+	    -I$(EFFECTIVE_BUILDROOT)/include/libxml2 \
+	    -I$(EFFECTIVE_BUILDROOT)/include \
+	    .nanvix/test/test_libxslt.c \
+	    -Llibxslt/.libs -Llibexslt/.libs \
+	    -L$(EFFECTIVE_BUILDROOT)/lib -L$(EFFECTIVE_SYSROOT)/lib \
+	    -T$(EFFECTIVE_SYSROOT)/lib/user.ld -static -Wl,-z,noexecstack \
+	    -lxslt -lexslt -lxml2 -lz \
+	    -Wl,--start-group \
+	    $(EFFECTIVE_SYSROOT)/lib/libposix.a \
+	    $(EFFECTIVE_TOOLCHAIN)/i686-nanvix/lib/libc.a \
+	    $(EFFECTIVE_TOOLCHAIN)/i686-nanvix/lib/libm.a \
+	    -Wl,--end-group \
+	    -o test_libxslt.elf'
+	@echo "  OK: test_libxslt.elf built"
+	@echo "  PASS: libxslt integration tests"
 
 test-functional: test-integration
 	@echo "  PASS: libxslt functional tests (library only, no runtime tests)"
@@ -169,6 +190,6 @@ install: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
 
 clean:
 	-make clean 2>/dev/null || true
-	rm -rf dist/ libxslt/.libs/*.a libexslt/.libs/*.a
+	rm -rf dist/ libxslt/.libs/*.a libexslt/.libs/*.a test_libxslt.elf
 
 .PHONY: all clean test test-smoke test-integration test-functional package verify-package install
