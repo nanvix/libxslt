@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 
 from nanvix_zutil import (
-    BUILDROOT_CONTAINER_PATH,
     CFG_SYSROOT,
     CFG_TOOLCHAIN,
     EXIT_MISSING_DEP,
