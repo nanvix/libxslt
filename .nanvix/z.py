@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 from nanvix_zutil import (
+    CFG_DOCKER_IMAGE,
     CFG_SYSROOT,
     CFG_TOOLCHAIN,
     EXIT_MISSING_DEP,
@@ -34,6 +35,7 @@ _MAKE_VAR_TOOLCHAIN = "NANVIX_TOOLCHAIN"
 _MAKE_VAR_PLATFORM = "PLATFORM"
 _MAKE_VAR_PROCESS_MODE = "PROCESS_MODE"
 _MAKE_VAR_MEMORY_SIZE = "MEMORY_SIZE"
+_MAKE_VAR_DOCKER_IMAGE = "NANVIX_DOCKER_IMAGE"
 
 
 class LibxsltBuild(ZScript):
@@ -80,6 +82,14 @@ class LibxsltBuild(ZScript):
         )
 
         args.extend(targets)
+
+        # Forward the Docker image from persisted config (set during
+        # ``nanvix-zutil setup --with-docker``) so the Makefile's
+        # auto-detection uses the same image that CI pulled.
+        docker_img = self.config.get(CFG_DOCKER_IMAGE)
+        if docker_img:
+            args.append(f"{_MAKE_VAR_DOCKER_IMAGE}={docker_img}")
+
         return args
 
     def setup(self) -> bool:
