@@ -14,6 +14,7 @@ Usage:
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -192,18 +193,88 @@ class LibxsltBuild(ZScript):
         print(f"\t\t*** All {len(test_binaries)} tests PASSED ***")
 
     def release(self) -> None:
-        """Package the libxslt release tarball and verify it."""
-        self.run(*self._make_args("package"), cwd=self.repo_root)
-        self.run(*self._make_args("verify-package"), cwd=self.repo_root)
+        """Package the libxslt release tarball and verify it.
+
+        Runs entirely on the host (no Docker) — only file copies and
+        tarball creation, which do not need the cross-compiler.  This
+        mirrors the cpython packaging approach where build/install use
+        Docker but packaging is native Python.
+        """
+        repo = self.repo_root
+        platform = self.config.machine
+        process_mode = self.config.deployment_mode
+        memory_size = self.config.memory_size
+        artifact = f"libxslt-{platform}-{process_mode}-{memory_size}"
+
+        dist_dir = repo / "dist"
+        staging = dist_dir / artifact
+
+        print("=== Packaging libxslt release ===")
+
+        # Clean previous staging.
+        if staging.exists():
+            shutil.rmtree(staging)
+
+        # Create staging directory structure.
+        sysroot = staging / "sysroot"
+        lib_dir = sysroot / "lib"
+        xslt_inc = sysroot / "include" / "libxslt"
+        exslt_inc = sysroot / "include" / "libexslt"
+
+        lib_dir.mkdir(parents=True)
+        xslt_inc.mkdir(parents=True)
+        exslt_inc.mkdir(parents=True)
+
+        # Copy static libraries.
+        for name, src_dir in [
+            ("libxslt.a", repo / "libxslt" / ".libs"),
+            ("libexslt.a", repo / "libexslt" / ".libs"),
+        ]:
+            src = src_dir / name
+            if not src.is_file():
+                raise FileNotFoundError(
+                    f"{name} not found at {src} — run `./z build` first."
+                )
+            shutil.copy2(src, lib_dir / name)
+
+        # Copy headers.
+        for h in sorted((repo / "libxslt").glob("*.h")):
+            shutil.copy2(h, xslt_inc / h.name)
+        for h in sorted((repo / "libexslt").glob("*.h")):
+            shutil.copy2(h, exslt_inc / h.name)
+
+        # Create tarball.
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        tarball = dist_dir / f"{artifact}.tar.gz"
+        with tarfile.open(str(tarball), "w:gz") as tf:
+            tf.add(str(sysroot), arcname="sysroot")
+
+        # Clean up staging directory.
+        shutil.rmtree(staging)
+
+        size_kb = tarball.stat().st_size // 1024
+        print(f"  Package: {tarball.name} ({size_kb}K)")
+
+        # Verify.
+        print("=== Verifying libxslt package ===")
+        with tarfile.open(str(tarball), "r:gz") as tf:
+            members = tf.getnames()
+
+        for expected in ("sysroot/lib/libxslt.a", "sysroot/lib/libexslt.a"):
+            if expected not in members:
+                raise ValueError(f"Package missing {expected}")
+
+        print("  PASS: libxslt package verification")
 
     def clean(self) -> None:
-        """Remove build artifacts."""
+        """Remove build artifacts (runs on the host, no Docker needed)."""
         self.run(
             "make",
             "-f",
             ".nanvix/Makefile.nanvix",
             "clean",
             cwd=self.repo_root,
+            docker=False,
         )
 
 
