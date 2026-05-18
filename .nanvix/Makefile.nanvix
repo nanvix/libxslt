@@ -144,7 +144,14 @@ test-integration: $(STATICLIB_XSLT) $(STATICLIB_EXSLT)
 	@echo "  PASS: libxslt integration tests"
 
 test-functional: test-integration
+	@echo "=== libxslt functional tests ==="
+ifeq ($(PROCESS_MODE),standalone)
+	@echo "  NOTE: Standalone functional tests are handled via ./z.sh."
+	@echo "  Delegating to: ./z.sh test test-functional"
+	@./z.sh test test-functional
+else
 	@echo "  PASS: libxslt functional tests (library only, no runtime tests)"
+endif
 
 test: test-smoke test-integration test-functional
 	@echo "=== All libxslt tests PASSED ==="
