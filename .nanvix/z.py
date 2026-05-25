@@ -27,7 +27,6 @@ from nanvix_zutil import (
 
 IS_WINDOWS = sys.platform == "win32"
 
-_MAKE_VAR_CONFIG = "CONFIG_NANVIX"
 _MAKE_VAR_HOME = "NANVIX_HOME"
 _MAKE_VAR_BUILDROOT = "NANVIX_BUILDROOT"
 _MAKE_VAR_TOOLCHAIN = "NANVIX_TOOLCHAIN"
@@ -48,9 +47,8 @@ class LibxsltBuild(ZScript):
                 code=EXIT_MISSING_DEP,
                 hint="Run `./z setup` first to download the sysroot.",
             )
-        toolchain = str(TOOLCHAIN_CONTAINER_PATH)
+        toolchain_p = str(TOOLCHAIN_CONTAINER_PATH)
         sysroot_p = self.translate_path(Path(sysroot))
-        toolchain_p = toolchain
 
         # Buildroot contains dependency libraries (libxml2, zlib).
         # During build(), self.buildroot may be None (only set during setup),
@@ -65,7 +63,6 @@ class LibxsltBuild(ZScript):
             "make",
             "-f",
             ".nanvix/Makefile.nanvix",
-            f"{_MAKE_VAR_CONFIG}=y",
             f"{_MAKE_VAR_HOME}={sysroot_p}",
             f"{_MAKE_VAR_BUILDROOT}={buildroot_p}",
             f"{_MAKE_VAR_TOOLCHAIN}={toolchain_p}",
@@ -84,7 +81,7 @@ class LibxsltBuild(ZScript):
 
     def build(self) -> None:
         """Cross-compile libxslt.a and libexslt.a for Nanvix."""
-        self.run(*self._make_args("all"), cwd=self.repo_root)
+        self.run(*self._make_args("all"), cwd=self.repo_root, docker=True)
 
     def test(self) -> None:
         """Run the libxslt test suite.
@@ -114,12 +111,20 @@ class LibxsltBuild(ZScript):
                 if "test" in targets and "test-smoke" not in make_targets:
                     make_targets.insert(0, "test-smoke")
             if make_targets:
-                self.run(*self._make_args(*make_targets), cwd=self.repo_root)
+                self.run(
+                    *self._make_args(*make_targets),
+                    cwd=self.repo_root,
+                    docker=False,
+                )
             if needs_functional:
                 self._run_functional_standalone()
         else:
             targets = self.targets if self.targets else ["test"]
-            self.run(*self._make_args(*targets), cwd=self.repo_root)
+            self.run(
+                *self._make_args(*targets),
+                cwd=self.repo_root,
+                docker=False,
+            )
 
     def _run_functional_standalone(self) -> None:
         """Run standalone functional tests using make_initrd.
