@@ -19,10 +19,12 @@ from pathlib import Path
 
 from nanvix_zutil import (
     CFG_SYSROOT,
-    TOOLCHAIN_CONTAINER_PATH,
     EXIT_MISSING_DEP,
+    TOOLCHAIN_CONTAINER_PATH,
     ZScript,
     log,
+    make_initrd,
+    run,
 )
 
 IS_WINDOWS = sys.platform == "win32"
@@ -48,14 +50,20 @@ class LibxsltBuild(ZScript):
                 hint="Run `./z setup` first to download the sysroot.",
             )
         toolchain_p = str(TOOLCHAIN_CONTAINER_PATH)
-        sysroot_p = self.translate_path(Path(sysroot))
+        sysroot_p = (
+            self.docker.translate_path(Path(sysroot)) if self.docker else Path(sysroot)
+        )
 
         # Buildroot contains dependency libraries (libxml2, zlib).
         # During build(), self.buildroot may be None (only set during setup),
         # so check if the directory exists on disk and translate accordingly.
         buildroot_dir = self.nanvix_dir / "buildroot"
         if buildroot_dir.is_dir():
-            buildroot_p = self.translate_path(buildroot_dir)
+            buildroot_p = (
+                self.docker.translate_path(buildroot_dir)
+                if self.docker
+                else buildroot_dir
+            )
         else:
             buildroot_p = sysroot_p
 
@@ -81,7 +89,7 @@ class LibxsltBuild(ZScript):
 
     def build(self) -> None:
         """Cross-compile libxslt.a and libexslt.a for Nanvix."""
-        self.run(*self._make_args("all"), cwd=self.repo_root, docker=True)
+        run(*self._make_args("all"), cwd=self.repo_root, docker=self.docker)
 
     def test(self) -> None:
         """Run the libxslt test suite.
@@ -111,19 +119,17 @@ class LibxsltBuild(ZScript):
                 if "test" in targets and "test-smoke" not in make_targets:
                     make_targets.insert(0, "test-smoke")
             if make_targets:
-                self.run(
+                run(
                     *self._make_args(*make_targets),
                     cwd=self.repo_root,
-                    docker=False,
                 )
             if needs_functional:
                 self._run_functional_standalone()
         else:
             targets = self.targets if self.targets else ["test"]
-            self.run(
+            run(
                 *self._make_args(*targets),
                 cwd=self.repo_root,
-                docker=False,
             )
 
     def _run_functional_standalone(self) -> None:
@@ -147,7 +153,7 @@ class LibxsltBuild(ZScript):
         print("=== libxslt functional tests ===")
         print("  Running test_libxslt.elf via nanvixd standalone...")
 
-        initrd = self.make_initrd("test_libxslt.elf")
+        initrd = make_initrd(self, "test_libxslt.elf")
         try:
             with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
                 tmpdir_path = Path(tmpdir)
@@ -156,15 +162,14 @@ class LibxsltBuild(ZScript):
                 (ramfs_dir / "tmp").mkdir(exist_ok=True)
                 ramfs_img = tmpdir_path / "rootfs.img"
 
-                self.run(
+                run(
                     str(mkramfs),
                     "-o",
                     str(ramfs_img),
                     str(ramfs_dir),
-                    docker=False,
                 )
 
-                self.run(
+                run(
                     str(sysroot_path / "bin" / "nanvixd.elf"),
                     "-bin-dir",
                     str(sysroot_path / "bin"),
@@ -172,7 +177,6 @@ class LibxsltBuild(ZScript):
                     str(ramfs_img),
                     "--",
                     str(initrd),
-                    docker=False,
                     timeout=120,
                 )
         finally:
@@ -235,7 +239,7 @@ class LibxsltBuild(ZScript):
         for binary in test_binaries:
             name = binary.stem
             print(f"RUN  {name}...")
-            initrd = self.make_initrd(binary.name)
+            initrd = make_initrd(self, binary.name)
             try:
                 with tempfile.TemporaryDirectory(prefix=f"nanvix_{name}_") as tmpdir:
                     tmpdir_path = Path(tmpdir)
@@ -244,15 +248,14 @@ class LibxsltBuild(ZScript):
                     (ramfs_dir / "tmp").mkdir(exist_ok=True)
                     ramfs_img = tmpdir_path / f"rootfs_{name}.img"
 
-                    self.run(
+                    run(
                         str(mkramfs),
                         "-o",
                         str(ramfs_img),
                         str(ramfs_dir),
-                        docker=False,
                     )
 
-                    self.run(
+                    run(
                         str(nanvixd),
                         "-bin-dir",
                         str(sysroot_path / "bin"),
@@ -260,7 +263,6 @@ class LibxsltBuild(ZScript):
                         str(ramfs_img),
                         "--",
                         str(initrd),
-                        docker=False,
                         timeout=120,
                     )
                 print(f"OK   {name}")
@@ -351,13 +353,12 @@ class LibxsltBuild(ZScript):
 
     def clean(self) -> None:
         """Remove build artifacts (runs on the host, no Docker needed)."""
-        self.run(
+        run(
             "make",
             "-f",
             ".nanvix/Makefile.nanvix",
             "clean",
             cwd=self.repo_root,
-            docker=False,
         )
 
 
