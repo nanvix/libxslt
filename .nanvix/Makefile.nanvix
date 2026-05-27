@@ -7,7 +7,8 @@
 #
 # Targets:
 #   all              Build libxslt.a, libexslt.a, and the test ELF
-#   test             Functional tests (the only supported suite; driven by z.py)
+#   test             Verify functional-test prerequisites (build artifacts).
+#                    The runtime execution is driven by z.py on the host.
 #   clean            Remove build artifacts
 
 # ===========================================================================
@@ -110,8 +111,11 @@ $(TEST_ELF): $(TEST_SRC)
 
 test:
 	@echo "=== libxslt functional tests ==="
-	@echo "  (functional tests are driven by z.py on the host)"
-	@echo "=== All libxslt tests PASSED ==="
+	@test -f $(STATICLIB_XSLT)  || { echo "  FAIL: $(STATICLIB_XSLT) not found";  exit 1; }
+	@test -f $(STATICLIB_EXSLT) || { echo "  FAIL: $(STATICLIB_EXSLT) not found"; exit 1; }
+	@test -s $(TEST_ELF)        || { echo "  FAIL: $(TEST_ELF) missing or empty"; exit 1; }
+	@echo "  OK: build artifacts present (runtime execution is driven by z.py on the host)"
+	@echo "=== libxslt functional test prerequisites PASSED ==="
 
 # ===========================================================================
 # Clean

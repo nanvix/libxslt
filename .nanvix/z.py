@@ -58,9 +58,14 @@ class LibxsltBuild(ZScript):
         workspace mount is left untouched.  Without an explicit list of
         output files, the produced ``test_libxslt.elf`` and static libraries
         never reach the host, which breaks ``./z test``.
+
+        On Linux/macOS the workspace is bind-mounted into the container, so
+        artifacts already appear on the host and no copy-back is required —
+        skip ``output_files`` to avoid the extra tar round-trip.
         """
         cfg = super().docker_config(image)
-        cfg.output_files = list(_BUILD_OUTPUTS)
+        if IS_WINDOWS:
+            cfg.output_files = list(_BUILD_OUTPUTS)
         return cfg
 
     def _make_args(self, *targets: str) -> list[str]:
