@@ -61,3 +61,6 @@ tests/XSLTMark/db10000.xml
 tests/plugins/plugin.res
 xsltproc/testThreads
 dist/
+
+# Nanvix
+nanvixd_*.log
