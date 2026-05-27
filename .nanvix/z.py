@@ -19,6 +19,7 @@ from pathlib import Path
 
 from nanvix_zutil import (
     CFG_SYSROOT,
+    DockerConfig,
     EXIT_MISSING_DEP,
     TOOLCHAIN_CONTAINER_PATH,
     ZScript,
@@ -26,6 +27,15 @@ from nanvix_zutil import (
     make_initrd,
     run,
 )
+
+# Build artifacts produced inside the Docker container that must be copied
+# back to the host workspace.  Used on Windows where Docker Desktop's tar-copy
+# mode builds in /tmp/build and leaves the mounted workspace untouched.
+_BUILD_OUTPUTS = [
+    "test_libxslt.elf",
+    "libxslt/.libs/libxslt.a",
+    "libexslt/.libs/libexslt.a",
+]
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -39,6 +49,19 @@ _MAKE_VAR_MEMORY_SIZE = "MEMORY_SIZE"
 
 class LibxsltBuild(ZScript):
     """Build script for nanvix/libxslt."""
+
+    def docker_config(self, image: str) -> DockerConfig:
+        """Extend default Docker config with build outputs to copy back.
+
+        On Windows, the toolchain image is invoked in tar-copy mode: sources
+        are copied into ``/tmp/build`` inside the container and the host
+        workspace mount is left untouched.  Without an explicit list of
+        output files, the produced ``test_libxslt.elf`` and static libraries
+        never reach the host, which breaks ``./z test``.
+        """
+        cfg = super().docker_config(image)
+        cfg.output_files = list(_BUILD_OUTPUTS)
+        return cfg
 
     def _make_args(self, *targets: str) -> list[str]:
         """Build the common make argument list."""
@@ -189,7 +212,7 @@ class LibxsltBuild(ZScript):
     def _run_tests_windows(self) -> None:
         """Run tests natively on Windows via nanvixd.exe.
 
-        Uses make_initrd to bundle each test binary with system daemons,
+        Uses make_initrd to bundle the test binary with system daemons,
         and a ramfs providing /tmp for test I/O.
         """
         if self.config.deployment_mode != "standalone":
@@ -221,61 +244,49 @@ class LibxsltBuild(ZScript):
                 hint="Run `./z setup` first.",
             )
 
-        test_allowlist = {"test_libxslt.elf"}
-        test_binaries: list[Path] = []
-        for candidate in [self.repo_root, self.repo_root / "build"]:
-            if candidate.is_dir():
-                for elf in sorted(candidate.glob("*.elf")):
-                    if elf.name in test_allowlist and elf.name not in {
-                        x.name for x in test_binaries
-                    }:
-                        test_binaries.append(elf)
+        binary = self.repo_root / "test_libxslt.elf"
+        if not binary.is_file():
+            log.fatal(
+                "test_libxslt.elf not found.",
+                code=EXIT_MISSING_DEP,
+                hint="Run `./z build` first.",
+            )
 
-        if not test_binaries:
-            print("No test binaries found; skipping Windows tests.")
-            return
+        print("=== libxslt functional tests ===")
+        print("  Running test_libxslt.elf via nanvixd.exe standalone...")
 
-        failed: list[str] = []
-        for binary in test_binaries:
-            name = binary.stem
-            print(f"RUN  {name}...")
-            initrd = make_initrd(self, binary.name)
-            try:
-                with tempfile.TemporaryDirectory(prefix=f"nanvix_{name}_") as tmpdir:
-                    tmpdir_path = Path(tmpdir)
-                    ramfs_dir = tmpdir_path / "ramfs"
-                    ramfs_dir.mkdir()
-                    (ramfs_dir / "tmp").mkdir(exist_ok=True)
-                    ramfs_img = tmpdir_path / f"rootfs_{name}.img"
+        initrd = make_initrd(self, binary.name)
+        try:
+            with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
+                tmpdir_path = Path(tmpdir)
+                ramfs_dir = tmpdir_path / "ramfs"
+                ramfs_dir.mkdir()
+                (ramfs_dir / "tmp").mkdir(exist_ok=True)
+                ramfs_img = tmpdir_path / "rootfs.img"
 
-                    run(
-                        str(mkramfs),
-                        "-o",
-                        str(ramfs_img),
-                        str(ramfs_dir),
-                    )
+                run(
+                    str(mkramfs),
+                    "-o",
+                    str(ramfs_img),
+                    str(ramfs_dir),
+                )
 
-                    run(
-                        str(nanvixd),
-                        "-bin-dir",
-                        str(sysroot_path / "bin"),
-                        "-ramfs",
-                        str(ramfs_img),
-                        "--",
-                        str(initrd),
-                        timeout=120,
-                    )
-                print(f"OK   {name}")
-            except SystemExit:
-                print(f"FAIL {name}")
-                failed.append(name)
-            finally:
-                if initrd.exists():
-                    initrd.unlink()
+                run(
+                    str(nanvixd),
+                    "-bin-dir",
+                    str(sysroot_path / "bin"),
+                    "-ramfs",
+                    str(ramfs_img),
+                    "--",
+                    str(initrd),
+                    timeout=120,
+                )
+        finally:
+            if initrd.exists():
+                initrd.unlink()
 
-        if failed:
-            raise RuntimeError(f"{len(failed)} test(s) failed: {' '.join(failed)}")
-        print(f"\t\t*** All {len(test_binaries)} tests PASSED ***")
+        print("  PASS: test_libxslt functional test")
+        print("=== All libxslt tests PASSED ===")
 
     def release(self) -> None:
         """Package the libxslt release tarball and verify it.
