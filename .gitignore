@@ -64,3 +64,4 @@ dist/
 
 # Nanvix
 nanvixd_*.log
+test_libxslt.elf
