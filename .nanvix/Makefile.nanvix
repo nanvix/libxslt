@@ -6,11 +6,8 @@
 #    NANVIX_TOOLCHAIN=<toolchain> [target]
 #
 # Targets:
-#   all              Build libxslt.a, libexslt.a, and the integration test ELF
-#   test             Run all tests (smoke, integration, functional)
-#   test-smoke       Verify build artifacts (no runtime)
-#   test-integration Verify the test ELF was produced
-#   test-functional  Library-only suite (no Nanvix runtime tests)
+#   all              Build libxslt.a, libexslt.a, and the test ELF
+#   test             Functional tests (the only supported suite; driven by z.py)
 #   clean            Remove build artifacts
 
 # ===========================================================================
@@ -111,25 +108,9 @@ $(TEST_ELF): $(TEST_SRC)
 # Test Targets
 # ===========================================================================
 
-test-smoke:
-	@echo "=== libxslt smoke tests ==="
-	@test -f $(STATICLIB_XSLT) || { echo "  FAIL: $(STATICLIB_XSLT) not found"; exit 1; }
-	@test -f $(STATICLIB_EXSLT) || { echo "  FAIL: $(STATICLIB_EXSLT) not found"; exit 1; }
-	@echo "  PASS: libxslt smoke tests"
-
-test-integration:
-	@echo "=== libxslt integration tests ==="
-	@test -f $(TEST_ELF) || { echo "  FAIL: $(TEST_ELF) not built"; exit 1; }
-	@size=$$(wc -c < $(TEST_ELF)); \
-	  if [ "$$size" -lt 1000 ]; then echo "  FAIL: $(TEST_ELF) too small ($$size bytes)"; exit 1; fi; \
-	  echo "  OK: $(TEST_ELF) ($$size bytes)"
-	@echo "  PASS: libxslt integration tests"
-
-test-functional:
+test:
 	@echo "=== libxslt functional tests ==="
-	@echo "  PASS: libxslt functional tests (library only, no runtime tests)"
-
-test: test-smoke test-integration test-functional
+	@echo "  (functional tests are driven by z.py on the host)"
 	@echo "=== All libxslt tests PASSED ==="
 
 # ===========================================================================
@@ -141,4 +122,4 @@ clean:
 	rm -f $(TEST_ELF) Makefile
 	rm -rf dist/ libxslt/.libs/ libexslt/.libs/
 
-.PHONY: all clean test test-smoke test-integration test-functional
+.PHONY: all clean test

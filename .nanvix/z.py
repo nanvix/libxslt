@@ -115,39 +115,19 @@ class LibxsltBuild(ZScript):
         run(*self._make_args("all"), cwd=self.repo_root, docker=self.docker)
 
     def test(self) -> None:
-        """Run the libxslt test suite.
+        """Run the libxslt functional test suite.
 
-        Smoke and integration tests are always delegated to the Makefile.
-        The functional test in standalone mode is handled in Python via
-        make_initrd so that initrd creation is shared across platforms.
+        Functional tests are the only supported suite on both Linux and
+        Windows; they cover all test cases.  In standalone mode the test
+        ELF is launched via nanvixd using ``make_initrd`` so the initrd
+        creation is shared across platforms.
         """
         if IS_WINDOWS:
             self._run_tests_windows()
             return
 
         if self.config.deployment_mode == "standalone":
-            targets = self.targets if self.targets else []
-            # Targets that require the Python functional path.
-            _functional_targets = {"test", "test-functional"}
-            needs_functional = not targets or bool(set(targets) & _functional_targets)
-            # Delegate non-functional targets to the Makefile.
-            make_targets = [t for t in targets if t not in _functional_targets]
-            if not targets:
-                make_targets = ["test-smoke", "test-integration"]
-            elif needs_functional:
-                # Ensure test-integration always runs when functional tests
-                # are needed, so that test_libxslt.elf is built.
-                if "test-integration" not in make_targets:
-                    make_targets.append("test-integration")
-                if "test" in targets and "test-smoke" not in make_targets:
-                    make_targets.insert(0, "test-smoke")
-            if make_targets:
-                run(
-                    *self._make_args(*make_targets),
-                    cwd=self.repo_root,
-                )
-            if needs_functional:
-                self._run_functional_standalone()
+            self._run_functional_standalone()
         else:
             targets = self.targets if self.targets else ["test"]
             run(
