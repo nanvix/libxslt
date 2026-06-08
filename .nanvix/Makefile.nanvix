@@ -6,7 +6,8 @@
 #    NANVIX_TOOLCHAIN=<toolchain> [target]
 #
 # Targets:
-#   all              Build libxslt.a, libexslt.a, and the test ELF
+#   all              Build libxslt.a, libexslt.a, and the test ELF, then stage via install
+#   install          Stage built artifacts into LIB_OUT/INCLUDE_OUT/TEST_OUT
 #   test             Verify functional-test prerequisites (build artifacts).
 #                    The runtime execution is driven by z.py on the host.
 #   clean            Remove build artifacts
@@ -17,11 +18,12 @@
 
 # Some assumptions:
 # 1. This makefile is expected to be invoked via z.py.
-# 2. Build goals require the cross-toolchain at $(NANVIX_TOOLCHAIN); other
-#    goals (test-*, clean) are pure host-side.
+# 2. Build goals (all, install) require the cross-toolchain at
+#    $(NANVIX_TOOLCHAIN); other goals (test-*, clean) are pure host-side.
 # 3. Build ALWAYS runs before test and release.
-# 4. Release packaging is handled in z.py (pure-Python tarfile); no
-#    package/verify-package targets here.
+# 4. Release packaging is handled by the inherited ZScript.release(), which
+#    packages release_dir() (= .nanvix/out/release/) into dist_dir();
+#    the install target below stages artifacts into that tree.
 
 .DEFAULT_GOAL=all
 EXE = .elf
@@ -31,11 +33,22 @@ STATICLIB_EXSLT := libexslt/.libs/libexslt.a
 TEST_SRC        := .nanvix/test/test_libxslt.c
 TEST_ELF        := test_libxslt$(EXE)
 
-_NANVIX_DOCKER_BUILD_GOALS := all $(STATICLIB_XSLT) $(STATICLIB_EXSLT) $(TEST_ELF)
+_NANVIX_DOCKER_BUILD_GOALS := all install $(STATICLIB_XSLT) $(STATICLIB_EXSLT) $(TEST_ELF)
 _NANVIX_GOALS := $(or $(MAKECMDGOALS),$(.DEFAULT_GOAL))
 
 # Ensure required variables are defined.
-_REQUIRED := PLATFORM PROCESS_MODE MEMORY_SIZE NANVIX_HOME NANVIX_BUILDROOT NANVIX_TOOLCHAIN
+_REQUIRED := PLATFORM \
+    PROCESS_MODE \
+    MEMORY_SIZE \
+    NANVIX_HOME \
+    NANVIX_BUILDROOT \
+    NANVIX_TOOLCHAIN \
+    NANVIX_ROOT \
+    OUT_DIR \
+    DIST_DIR \
+    LIB_OUT \
+    INCLUDE_OUT \
+    TEST_OUT
 ifneq ($(filter-out clean,$(_NANVIX_GOALS)),)
   $(foreach v,$(_REQUIRED),\
     $(if $($v),,$(error Required variable $v not set))\
@@ -66,7 +79,7 @@ endif
 # Build Targets
 # ===========================================================================
 
-all: $(STATICLIB_XSLT) $(STATICLIB_EXSLT) $(TEST_ELF)
+all: $(STATICLIB_XSLT) $(STATICLIB_EXSLT) $(TEST_ELF) install
 
 $(STATICLIB_XSLT) $(STATICLIB_EXSLT):
 	sh -c '\
@@ -106,6 +119,18 @@ $(TEST_ELF): $(TEST_SRC)
 	  -o $@
 
 # ===========================================================================
+# Install (stage artifacts into release/test output tree)
+# ===========================================================================
+
+install: $(STATICLIB_XSLT) $(STATICLIB_EXSLT) $(TEST_ELF)
+	@mkdir -p $(LIB_OUT) $(INCLUDE_OUT)/libxslt $(INCLUDE_OUT)/libexslt $(TEST_OUT)
+	cp -f $(STATICLIB_XSLT)  $(LIB_OUT)/
+	cp -f $(STATICLIB_EXSLT) $(LIB_OUT)/
+	cp -f libxslt/*.h        $(INCLUDE_OUT)/libxslt/
+	cp -f libexslt/*.h       $(INCLUDE_OUT)/libexslt/
+	cp -f $(TEST_ELF)        $(TEST_OUT)/
+
+# ===========================================================================
 # Test Targets
 # ===========================================================================
 
@@ -124,6 +149,6 @@ test:
 clean:
 	-$(MAKE) clean 2>/dev/null || true
 	rm -f $(TEST_ELF) Makefile
-	rm -rf dist/ libxslt/.libs/ libexslt/.libs/
+	rm -rf $(OUT_DIR) dist/ libxslt/.libs/ libexslt/.libs/
 
-.PHONY: all clean test
+.PHONY: all install clean test
