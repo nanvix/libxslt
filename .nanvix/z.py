@@ -24,8 +24,6 @@ from nanvix_zutil import (
     log,
     make_initrd,
     run,
-    load_manifest,
-    package,
 )
 from nanvix_zutil.paths import (
     buildroot,
@@ -36,7 +34,6 @@ from nanvix_zutil.paths import (
     out_dir,
     repo_root,
     test_out,
-    release_dir,
 )
 
 # Build artifacts produced inside the Docker container that must be copied
@@ -298,27 +295,6 @@ class LibxsltBuild(ZScript):
 
         print("  PASS: test_libxslt functional test")
         print("=== All libxslt tests PASSED ===")
-
-    def release(self) -> None:
-        """Package the release archive named per build configuration.
-
-        The base :meth:`ZScript.release` packages ``release_dir()`` under the
-        bare package name, so every matrix configuration emits an
-        identically-named archive; in CI these collide and overwrite one
-        another, leaving the published release with only generic assets.
-        Dependents resolve assets by the pattern
-        ``{name}-{machine}-{mode}-{mem}`` (e.g.
-        ``{name}-microvm-multi-process-128mb``), so the archive must carry that
-        name for dependency installation to succeed.
-        """
-        manifest = load_manifest()
-        name = (
-            f"{manifest.name}"
-            f"-{self.config.machine}"
-            f"-{self.config.deployment_mode}"
-            f"-{self.config.memory_size}"
-        )
-        package([release_dir()], dist_dir(), name)
 
     def clean(self) -> None:
         """Remove build artifacts (runs on the host, no Docker needed)."""
