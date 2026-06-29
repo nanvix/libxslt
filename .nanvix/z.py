@@ -11,6 +11,7 @@ Usage:
     ./z clean     # Remove build artifacts
 """
 
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -252,8 +253,14 @@ class LibxsltBuild(ZScript):
                 hint="Run `./z setup` first.",
             )
 
-        binary = repo_root() / "test_libxslt.elf"
-        if not binary.is_file():
+        binary: Path | None = None
+        # test_out() is the windows-test artifact overlay.
+        for candidate in (test_out(), repo_root()):
+            p = candidate / "test_libxslt.elf"
+            if p.is_file():
+                binary = p
+                break
+        if binary is None:
             log.fatal(
                 "test_libxslt.elf not found.",
                 code=EXIT_MISSING_DEP,
@@ -263,7 +270,14 @@ class LibxsltBuild(ZScript):
         print("=== libxslt functional tests ===")
         print("  Running test_libxslt.elf via nanvixd.exe standalone...")
 
-        initrd = make_initrd(self, binary.name, test=True)
+        # make_initrd resolves binaries via repo_root()/app; stage if absent.
+        repo_elf = repo_root() / "test_libxslt.elf"
+        preexisted = repo_elf.exists()
+        if binary.resolve() != repo_elf.resolve():
+            shutil.copy2(binary, repo_elf)
+        staged_created = not preexisted
+
+        initrd = make_initrd(self, repo_elf.name, test=True)
         try:
             with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
                 tmpdir_path = Path(tmpdir)
@@ -292,6 +306,8 @@ class LibxsltBuild(ZScript):
         finally:
             if initrd.exists():
                 initrd.unlink()
+            if staged_created and repo_elf.exists():
+                repo_elf.unlink()
 
         print("  PASS: test_libxslt functional test")
         print("=== All libxslt tests PASSED ===")
