@@ -11,7 +11,6 @@ Usage:
     ./z clean     # Remove build artifacts
 """
 
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -40,9 +39,9 @@ from nanvix_zutil.paths import (
 # Build artifacts produced inside the Docker container that must be copied
 # back to the host workspace.  Used on Windows where Docker Desktop's tar-copy
 # mode builds in /tmp/build and leaves the mounted workspace untouched.
-# Only ``test_libxslt.elf`` is load-bearing at the repo root (resolved by
-# ``make_initrd`` via ``repo_root()/app``); the static libraries are linked
-# into the test ELF inside the same container and are not needed on the host.
+# Only ``test_libxslt.elf`` is load-bearing at the repo root (the Windows
+# test runner expects it there); the static libraries are linked into the
+# test ELF inside the same container and are not needed on the host.
 # Install-staged artifacts for ``./z release`` are listed by
 # ``_staged_output_files()``.
 _BUILD_OUTPUTS = [
@@ -185,7 +184,7 @@ class LibxsltBuild(ZScript):
         print("=== libxslt functional tests ===")
         print("  Running test_libxslt.elf via nanvixd standalone...")
 
-        initrd = make_initrd(self, "test_libxslt.elf", test=True)
+        initrd = make_initrd(self, repo_root() / "test_libxslt.elf", test_out())
         try:
             with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
                 tmpdir_path = Path(tmpdir)
@@ -270,14 +269,7 @@ class LibxsltBuild(ZScript):
         print("=== libxslt functional tests ===")
         print("  Running test_libxslt.elf via nanvixd.exe standalone...")
 
-        # make_initrd resolves binaries via repo_root()/app; stage if absent.
-        repo_elf = repo_root() / "test_libxslt.elf"
-        preexisted = repo_elf.exists()
-        if binary.resolve() != repo_elf.resolve():
-            shutil.copy2(binary, repo_elf)
-        staged_created = not preexisted
-
-        initrd = make_initrd(self, repo_elf.name, test=True)
+        initrd = make_initrd(self, binary, test_out())
         try:
             with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
                 tmpdir_path = Path(tmpdir)
@@ -306,8 +298,6 @@ class LibxsltBuild(ZScript):
         finally:
             if initrd.exists():
                 initrd.unlink()
-            if staged_created and repo_elf.exists():
-                repo_elf.unlink()
 
         print("  PASS: test_libxslt functional test")
         print("=== All libxslt tests PASSED ===")
