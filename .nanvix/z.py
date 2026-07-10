@@ -5,7 +5,7 @@
 
 Usage:
     ./z setup     # Download Nanvix sysroot
-    ./z build     # Cross-compile libxslt.a and libexslt.a
+    ./z build     # Cross-compile libxslt.a/.so and libexslt.a/.so
     ./z test      # Run test suite (smoke + integration + functional)
     ./z release   # Package release tarball
     ./z clean     # Remove build artifacts
@@ -87,7 +87,9 @@ class LibxsltBuild(ZScript):
         root = repo_root()
         return [
             str((lib_out() / "libxslt.a").relative_to(root)),
+        str((lib_out() / "libxslt.so").relative_to(root)),
             str((lib_out() / "libexslt.a").relative_to(root)),
+        str((lib_out() / "libexslt.so").relative_to(root)),
             str((test_out() / "test_libxslt.elf").relative_to(root)),
         ]
 
@@ -139,7 +141,7 @@ class LibxsltBuild(ZScript):
         return args
 
     def build(self) -> None:
-        """Cross-compile libxslt.a and libexslt.a for Nanvix."""
+        """Cross-compile libxslt.a/.so and libexslt.a/.so for Nanvix."""
         run(*self._make_args("all"), cwd=repo_root(), docker=self.docker)
 
     def test(self) -> None:
