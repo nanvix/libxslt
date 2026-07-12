@@ -18,7 +18,7 @@
 
 # Some assumptions:
 # 1. This makefile is expected to be invoked via z.py.
-# 2. Build goals (all, install) require the cross-toolchain at
+# 2. Build goals (all, install) require the Nanvix SDK at
 #    $(NANVIX_TOOLCHAIN); other goals (test-*, clean) are pure host-side.
 # 3. Build ALWAYS runs before test and release.
 # 4. Release packaging is handled by the inherited ZScript.release(), which
@@ -48,6 +48,7 @@ _REQUIRED := PLATFORM \
     DIST_DIR \
     LIB_OUT \
     INCLUDE_OUT \
+    BIN_OUT \
     TEST_OUT
 ifneq ($(filter-out clean,$(_NANVIX_GOALS)),)
   $(foreach v,$(_REQUIRED),\
@@ -70,10 +71,19 @@ ifneq ($(_BUILD),)
     $(error Cannot mix build and non-build targets. Build targets: $(_NANVIX_DOCKER_BUILD_GOALS))
   endif
 
-  ifeq ($(wildcard $(NANVIX_TOOLCHAIN)/bin/i686-nanvix-gcc),)
-    $(error Nanvix toolchain not found at $(NANVIX_TOOLCHAIN))
+  ifeq ($(wildcard $(NANVIX_TOOLCHAIN)/nanvix-sdk.json),)
+    $(error Nanvix SDK not found at $(NANVIX_TOOLCHAIN))
+  endif
+  ifeq ($(wildcard $(NANVIX_TOOLCHAIN)/bin/clang),)
+    $(error Nanvix SDK Clang not found at $(NANVIX_TOOLCHAIN)/bin/clang)
   endif
 endif
+
+CC     := $(NANVIX_TOOLCHAIN)/bin/clang
+AR     := $(NANVIX_TOOLCHAIN)/bin/llvm-ar
+RANLIB := $(NANVIX_TOOLCHAIN)/bin/llvm-ranlib
+NM     := $(NANVIX_TOOLCHAIN)/bin/llvm-nm
+STRIP  := $(NANVIX_TOOLCHAIN)/bin/llvm-strip
 
 # ===========================================================================
 # Build Targets
@@ -86,13 +96,14 @@ $(STATICLIB_XSLT) $(STATICLIB_EXSLT):
 	  export PATH="$(NANVIX_TOOLCHAIN)/bin:$$PATH" && \
 	  touch aclocal.m4 configure config.h.in Makefile.in libxslt/Makefile.in libexslt/Makefile.in && \
 	  ./configure --host=i686-nanvix \
-	    --prefix=/usr/local \
+	    --prefix="$(BUILDROOT_PATH)" \
 	    --enable-static --disable-shared --disable-maintainer-mode \
 	    --without-python --without-crypto \
 	    --without-debugger --without-plugins \
 	    --with-libxml-prefix="$(BUILDROOT_PATH)" \
 	    --with-libxml-include-prefix="$(BUILDROOT_PATH)/include/libxml2" \
 	    --with-libxml-libs-prefix="$(BUILDROOT_PATH)/lib" \
+	    CC="$(CC)" AR="$(AR)" RANLIB="$(RANLIB)" NM="$(NM)" STRIP="$(STRIP)" \
 	    CFLAGS="-I$(BUILDROOT_PATH)/include -I$(BUILDROOT_PATH)/include/libxml2" \
 	    LDFLAGS="-L$(BUILDROOT_PATH)/lib" \
 	    LIBS="-lxml2 -lz" && \
@@ -102,22 +113,15 @@ $(STATICLIB_XSLT) $(STATICLIB_EXSLT):
 $(TEST_ELF): $(TEST_SRC)
 	@test -f $(STATICLIB_XSLT) || { echo "  FAIL: $(STATICLIB_XSLT) not found; run 'build' first"; exit 1; }
 	@test -f $(STATICLIB_EXSLT) || { echo "  FAIL: $(STATICLIB_EXSLT) not found; run 'build' first"; exit 1; }
-	$(NANVIX_TOOLCHAIN)/bin/i686-nanvix-gcc \
+	$(CC) \
 	  -I. -Ilibxslt -Ilibexslt \
 	  -I$(BUILDROOT_PATH)/include/libxml2 \
 	  -I$(BUILDROOT_PATH)/include \
 	  $(TEST_SRC) \
 	  -Llibxslt/.libs -Llibexslt/.libs \
-	  -L$(BUILDROOT_PATH)/lib -L$(SYSROOT_PATH)/lib \
-	  -T$(SYSROOT_PATH)/lib/user.ld -static -Wl,-z,noexecstack \
-	  -Wl,--allow-multiple-definition \
+	  -L$(BUILDROOT_PATH)/lib \
+	  -Wl,-z,noexecstack \
 	  -lxslt -lexslt -lxml2 -lz \
-	  -Wl,--start-group \
-	  $(SYSROOT_PATH)/lib/libnvx_crt0.a \
-	  $(SYSROOT_PATH)/lib/libposix.a \
-	  $(NANVIX_TOOLCHAIN)/i686-nanvix/lib/libc.a \
-	  $(NANVIX_TOOLCHAIN)/i686-nanvix/lib/libm.a \
-	  -Wl,--end-group \
 	  -o $@
 
 # ===========================================================================
@@ -125,12 +129,40 @@ $(TEST_ELF): $(TEST_SRC)
 # ===========================================================================
 
 install: $(STATICLIB_XSLT) $(STATICLIB_EXSLT) $(TEST_ELF)
-	@mkdir -p $(LIB_OUT) $(INCLUDE_OUT)/libxslt $(INCLUDE_OUT)/libexslt $(TEST_OUT)
+	@mkdir -p $(LIB_OUT)/pkgconfig $(INCLUDE_OUT)/libxslt $(INCLUDE_OUT)/libexslt $(BIN_OUT) $(TEST_OUT)
 	cp -f $(STATICLIB_XSLT)  $(LIB_OUT)/
 	cp -f $(STATICLIB_EXSLT) $(LIB_OUT)/
 	cp -f libxslt/*.h        $(INCLUDE_OUT)/libxslt/
 	cp -f libexslt/*.h       $(INCLUDE_OUT)/libexslt/
 	cp -f $(TEST_ELF)        $(TEST_OUT)/
+	@echo '#!/bin/sh'                                                               >  $(BIN_OUT)/xslt-config
+	@echo 'prefix=$$(CDPATH= cd -- "$$(dirname -- "$$0")/.." && pwd)'              >> $(BIN_OUT)/xslt-config
+	@echo 'case "$$1" in'                                                           >> $(BIN_OUT)/xslt-config
+	@echo '  --cflags) echo "-I$$prefix/include -I$$prefix/include/libxml2" ;;'     >> $(BIN_OUT)/xslt-config
+	@echo '  --libs)   echo "-L$$prefix/lib -lxslt -lxml2 -lz" ;;'                 >> $(BIN_OUT)/xslt-config
+	@echo '  --version) echo "1.1.42" ;;'                                           >> $(BIN_OUT)/xslt-config
+	@echo 'esac'                                                                    >> $(BIN_OUT)/xslt-config
+	chmod +x $(BIN_OUT)/xslt-config
+	@echo 'prefix=$${pcfiledir}/../..'                                               >  $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'libdir=$${prefix}/lib'                                                   >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'includedir=$${prefix}/include'                                           >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo                                                                          >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'Name: libxslt'                                                          >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'Version: 1.1.42'                                                        >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'Description: XSLT library version 2.'                                   >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'Libs: -L$${libdir} -lxslt'                                              >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'Libs.private: -lxml2 -lz -lm'                                           >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'Cflags: -I$${includedir} -I$${includedir}/libxml2'                      >> $(LIB_OUT)/pkgconfig/libxslt.pc
+	@echo 'prefix=$${pcfiledir}/../..'                                               >  $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'libdir=$${prefix}/lib'                                                   >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'includedir=$${prefix}/include'                                           >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo                                                                          >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'Name: libexslt'                                                         >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'Version: 0.8.23'                                                        >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'Description: EXSLT Extension library'                                   >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'Libs: -L$${libdir} -lexslt'                                             >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'Libs.private: -lxslt -lxml2 -lz -lm'                                    >> $(LIB_OUT)/pkgconfig/libexslt.pc
+	@echo 'Cflags: -I$${includedir} -I$${includedir}/libxml2'                      >> $(LIB_OUT)/pkgconfig/libexslt.pc
 
 # ===========================================================================
 # Test Targets
