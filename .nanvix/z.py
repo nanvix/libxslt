@@ -26,6 +26,7 @@ from nanvix_zutil import (
     run,
 )
 from nanvix_zutil.paths import (
+    bin_out,
     buildroot,
     dist_dir,
     include_out,
@@ -50,6 +51,12 @@ _BUILD_OUTPUTS = [
 
 IS_WINDOWS = sys.platform == "win32"
 
+#: Docker image for cross-compiling Nanvix targets.
+NANVIX_DOCKER_IMAGE = (
+    "ghcr.io/nanvix/nanvix-sdk-c-clang"
+    "@sha256:f61737cb0780e6a2058c6d0bdf8ae5562db18de437173b2bcbbe6973abd3689f"
+)
+
 _MAKE_VAR_HOME = "NANVIX_HOME"
 _MAKE_VAR_BUILDROOT = "NANVIX_BUILDROOT"
 _MAKE_VAR_TOOLCHAIN = "NANVIX_TOOLCHAIN"
@@ -60,6 +67,23 @@ _MAKE_VAR_MEMORY_SIZE = "MEMORY_SIZE"
 
 class LibxsltBuild(ZScript):
     """Build script for nanvix/libxslt."""
+
+    # Build-time headers, libraries, startup objects, and linker scripts come
+    # from the SDK and buildroot. The downloaded sysroot is runtime-only.
+    SYSROOT_REQUIRED_FILES = (
+        "bin/nanvixd.elf",
+        "bin/kernel.elf",
+        "bin/mkramfs.elf",
+    )
+    SYSROOT_REQUIRED_FILES_WINDOWS = (
+        "bin/nanvixd.exe",
+        "bin/kernel.elf",
+        "bin/mkramfs.exe",
+    )
+
+    def docker_image(self) -> str:
+        """Return the default Docker image for cross-compilation."""
+        return NANVIX_DOCKER_IMAGE
 
     def docker_config(self, image: str) -> DockerConfig:
         """Extend default Docker config with build outputs to copy back.
@@ -88,6 +112,9 @@ class LibxsltBuild(ZScript):
         return [
             str((lib_out() / "libxslt.a").relative_to(root)),
             str((lib_out() / "libexslt.a").relative_to(root)),
+            str((lib_out() / "pkgconfig" / "libxslt.pc").relative_to(root)),
+            str((lib_out() / "pkgconfig" / "libexslt.pc").relative_to(root)),
+            str((bin_out() / "xslt-config").relative_to(root)),
             str((test_out() / "test_libxslt.elf").relative_to(root)),
         ]
 
@@ -108,9 +135,15 @@ class LibxsltBuild(ZScript):
         def translate(p: Path):
             return self.docker.translate_path(p) if self.docker else p
 
-        # Buildroot contains dependency libraries (libxml2, zlib),
-        # populated by `./z setup`.
-        buildroot_p = translate(buildroot())
+        # Buildroot contains build-time dependency headers and libraries.
+        buildroot_dir = buildroot()
+        if not buildroot_dir.is_dir():
+            log.fatal(
+                "Nanvix buildroot not found.",
+                code=EXIT_MISSING_DEP,
+                hint="Run `./z setup` first to install build dependencies.",
+            )
+        buildroot_p = translate(buildroot_dir)
 
         args = [
             "make",
@@ -131,6 +164,7 @@ class LibxsltBuild(ZScript):
                 f"DIST_DIR={translate(dist_dir())}",
                 f"LIB_OUT={translate(lib_out())}",
                 f"INCLUDE_OUT={translate(include_out())}",
+                f"BIN_OUT={translate(bin_out())}",
                 f"TEST_OUT={translate(test_out())}",
             ]
         )
@@ -186,7 +220,9 @@ class LibxsltBuild(ZScript):
 
         initrd = make_initrd(self, repo_root() / "test_libxslt.elf", test_out())
         try:
-            with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
+            with tempfile.TemporaryDirectory(
+                prefix="nanvix_libxslt_", dir=test_out()
+            ) as tmpdir:
                 tmpdir_path = Path(tmpdir)
                 ramfs_dir = tmpdir_path / "ramfs"
                 ramfs_dir.mkdir()
@@ -271,7 +307,9 @@ class LibxsltBuild(ZScript):
 
         initrd = make_initrd(self, binary, test_out())
         try:
-            with tempfile.TemporaryDirectory(prefix="nanvix_libxslt_") as tmpdir:
+            with tempfile.TemporaryDirectory(
+                prefix="nanvix_libxslt_", dir=test_out()
+            ) as tmpdir:
                 tmpdir_path = Path(tmpdir)
                 ramfs_dir = tmpdir_path / "ramfs"
                 ramfs_dir.mkdir()
