@@ -31,7 +31,6 @@ from nanvix_zutil.paths import (
     dist_dir,
     nanvix_root,
     out_dir,
-    regular_out,
     repo_root,
     test_out,
 )
@@ -104,7 +103,7 @@ class LibxsltBuild(ZScript):
             str((lib / "libexslt.a").relative_to(root)),
             str((lib / "pkgconfig" / "libxslt.pc").relative_to(root)),
             str((lib / "pkgconfig" / "libexslt.pc").relative_to(root)),
-            str((regular_out() / "bin" / "xslt-config").relative_to(root)),
+            str((dev_out() / "bin" / "xslt-config").relative_to(root)),
             str((test_out() / "test_libxslt.elf").relative_to(root)),
         ]
 
@@ -154,7 +153,7 @@ class LibxsltBuild(ZScript):
                 f"DIST_DIR={translate(dist_dir())}",
                 f"LIB_OUT={translate(dev_out() / 'lib')}",
                 f"INCLUDE_OUT={translate(dev_out() / 'include')}",
-                f"BIN_OUT={translate(regular_out() / 'bin')}",
+                f"BIN_OUT={translate(dev_out() / 'bin')}",
                 f"TEST_OUT={translate(test_out())}",
             ]
         )
