@@ -207,7 +207,7 @@ class LibxsltBuild(ZScript):
         print("=== libxslt functional tests ===")
         print("  Running test_libxslt.elf via nanvixd standalone...")
 
-        initrd = make_initrd(self, repo_root() / "test_libxslt.elf", test_out())
+        initrd = make_initrd(repo_root() / "test_libxslt.elf", test_out())
         try:
             with tempfile.TemporaryDirectory(
                 prefix="nanvix_libxslt_", dir=test_out()
@@ -294,7 +294,7 @@ class LibxsltBuild(ZScript):
         print("=== libxslt functional tests ===")
         print("  Running test_libxslt.elf via nanvixd.exe standalone...")
 
-        initrd = make_initrd(self, binary, test_out())
+        initrd = make_initrd(binary, test_out())
         try:
             with tempfile.TemporaryDirectory(
                 prefix="nanvix_libxslt_", dir=test_out()
