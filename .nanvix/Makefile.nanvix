@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 #
 # Usage: make -f .nanvix/Makefile.nanvix PLATFORM=<platform> PROCESS_MODE=<mode> \
-#    MEMORY_SIZE=<size> NANVIX_HOME=<home> NANVIX_BUILDROOT=<buildroot> \
+#    MEMORY_SIZE=<size> NANVIX_HOME=<home> \
 #    NANVIX_TOOLCHAIN=<toolchain> [target]
 #
 # Targets:
@@ -41,7 +41,6 @@ _REQUIRED := PLATFORM \
     PROCESS_MODE \
     MEMORY_SIZE \
     NANVIX_HOME \
-    NANVIX_BUILDROOT \
     NANVIX_TOOLCHAIN \
     NANVIX_ROOT \
     OUT_DIR \
@@ -57,7 +56,6 @@ ifneq ($(filter-out clean,$(_NANVIX_GOALS)),)
 endif
 
 SYSROOT_PATH   := $(abspath $(NANVIX_HOME))
-BUILDROOT_PATH := $(abspath $(NANVIX_BUILDROOT))
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 
 # ===========================================================================
@@ -96,16 +94,16 @@ $(STATICLIB_XSLT) $(STATICLIB_EXSLT):
 	  export PATH="$(NANVIX_TOOLCHAIN)/bin:$$PATH" && \
 	  touch aclocal.m4 configure config.h.in Makefile.in libxslt/Makefile.in libexslt/Makefile.in && \
 	  ./configure --host=i686-nanvix \
-	    --prefix="$(BUILDROOT_PATH)" \
+	    --prefix="$(SYSROOT_PATH)" \
 	    --enable-static --disable-shared --disable-maintainer-mode \
 	    --without-python --without-crypto \
 	    --without-debugger --without-plugins \
-	    --with-libxml-prefix="$(BUILDROOT_PATH)" \
-	    --with-libxml-include-prefix="$(BUILDROOT_PATH)/include/libxml2" \
-	    --with-libxml-libs-prefix="$(BUILDROOT_PATH)/lib" \
+	    --with-libxml-prefix="$(SYSROOT_PATH)" \
+	    --with-libxml-include-prefix="$(SYSROOT_PATH)/include/libxml2" \
+	    --with-libxml-libs-prefix="$(SYSROOT_PATH)/lib" \
 	    CC="$(CC)" AR="$(AR)" RANLIB="$(RANLIB)" NM="$(NM)" STRIP="$(STRIP)" \
-	    CFLAGS="-I$(BUILDROOT_PATH)/include -I$(BUILDROOT_PATH)/include/libxml2" \
-	    LDFLAGS="-L$(BUILDROOT_PATH)/lib" \
+	    CFLAGS="-I$(SYSROOT_PATH)/include -I$(SYSROOT_PATH)/include/libxml2" \
+	    LDFLAGS="-L$(SYSROOT_PATH)/lib" \
 	    LIBS="-lxml2 -lz" && \
 	  make -C libxslt -j$(NPROC) && \
 	  make -C libexslt -j$(NPROC)'
@@ -115,11 +113,11 @@ $(TEST_ELF): $(TEST_SRC)
 	@test -f $(STATICLIB_EXSLT) || { echo "  FAIL: $(STATICLIB_EXSLT) not found; run 'build' first"; exit 1; }
 	$(CC) \
 	  -I. -Ilibxslt -Ilibexslt \
-	  -I$(BUILDROOT_PATH)/include/libxml2 \
-	  -I$(BUILDROOT_PATH)/include \
+	  -I$(SYSROOT_PATH)/include/libxml2 \
+	  -I$(SYSROOT_PATH)/include \
 	  $(TEST_SRC) \
 	  -Llibxslt/.libs -Llibexslt/.libs \
-	  -L$(BUILDROOT_PATH)/lib \
+	  -L$(SYSROOT_PATH)/lib \
 	  -Wl,-z,noexecstack \
 	  -lxslt -lexslt -lxml2 -lz \
 	  -o $@
