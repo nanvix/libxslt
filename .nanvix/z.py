@@ -72,25 +72,6 @@ class LibxsltBuild(ZScript):
         "bin/mkramfs.exe",
     )
 
-    def docker_config(self, image: str) -> DockerConfig:
-        """Extend default Docker config with build outputs to copy back.
-
-        On Windows, the toolchain image is invoked in tar-copy mode: sources
-        are copied into ``/tmp/build`` inside the container and the host
-        workspace mount is left untouched.  Without an explicit list of
-        output files, the produced ``test_libxslt.elf`` and the
-        install-staged artifacts under ``.nanvix/out/`` never reach the
-        host, which breaks ``./z test`` and ``./z release``.
-
-        On Linux/macOS the workspace is bind-mounted into the container, so
-        artifacts already appear on the host and no copy-back is required —
-        skip ``output_files`` to avoid the extra tar round-trip.
-        """
-        cfg = super().docker_config(image)
-        if IS_WINDOWS:
-            cfg.output_files = list(_BUILD_OUTPUTS) + self._staged_output_files()
-        return cfg
-
     def _staged_output_files(self) -> list[str]:
         """Return install-staged artifact paths (relative to repo_root())
         so Windows tar-copy mode also copies them back to the host.
@@ -106,7 +87,7 @@ class LibxsltBuild(ZScript):
             str((test_out() / "test_libxslt.elf").relative_to(root)),
         ]
 
-    def _make_args(self, *targets: str) -> list[str]:
+    def _make_args(self, docker: DockerConfig | None, *targets: str) -> list[str]:
         """Build the common make argument list."""
         sysroot = self.config.get(CFG_SYSROOT, "")
         if not sysroot:
@@ -117,13 +98,11 @@ class LibxsltBuild(ZScript):
             )
         toolchain_p = str(TOOLCHAIN_CONTAINER_PATH)
         sysroot_p = (
-            translate_path(self.docker.mounts, Path(sysroot))
-            if self.docker
-            else Path(sysroot)
+            translate_path(docker.mounts, Path(sysroot)) if docker else Path(sysroot)
         )
 
         def translate(p: Path):
-            return translate_path(self.docker.mounts, p) if self.docker else p
+            return translate_path(docker.mounts, p) if docker else p
 
         args = [
             "make",
@@ -151,9 +130,11 @@ class LibxsltBuild(ZScript):
         args.extend(targets)
         return args
 
-    def build(self) -> None:
+    def build(self, docker: DockerConfig) -> None:
         """Cross-compile libxslt.a and libexslt.a for Nanvix."""
-        run(*self._make_args("all"), cwd=repo_root(), docker=self.docker)
+        if IS_WINDOWS:
+            docker.output_files = list(_BUILD_OUTPUTS) + self._staged_output_files()
+        run(*self._make_args(docker, "all"), cwd=repo_root(), docker=docker)
 
     def test(self) -> None:
         """Run the libxslt functional test suite.
@@ -172,7 +153,7 @@ class LibxsltBuild(ZScript):
         else:
             targets = self.targets if self.targets else ["test"]
             run(
-                *self._make_args(*targets),
+                *self._make_args(None, *targets),
                 cwd=repo_root(),
             )
 
